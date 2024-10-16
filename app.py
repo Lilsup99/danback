@@ -1,52 +1,80 @@
-from flask import Flask, request, render_template
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 import os
 import pandas as pd
+from typing import List
 from graphs import grafica_columna
+import plotly.io as pio
 
-def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-app = Flask(__name__)
+app = FastAPI()
 
 # Configura la carpeta donde se guardarán los archivos
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-ALLOWED_EXTENSIONS = {'csv','xlxs'}
+ALLOWED_EXTENSIONS = {'csv', 'xlsx'}
 
-@app.route('/')
-def index():
-    return render_template('upload.html')
+def allowed_file(filename: str) -> bool:
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    if 'file' not in request.files:
-        return 'No file part', 400
-    
-    file = request.files['file']
-    
-    if file.filename == '':
-        return 'No selected file', 400
-    
+# Montar un directorio estático para los archivos de frontend
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/", response_class=HTMLResponse)
+async def index():
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Upload File</title>
+    </head>
+    <body>
+        <h1>Upload File</h1>
+        <form action="/upload" method="post" enctype="multipart/form-data">
+            <input type="file" name="file">
+            <input type="submit" value="Upload">
+        </form>
+    </body>
+    </html>
+    """
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No selected file")
+
+    if not allowed_file(file.filename):
+        raise HTTPException(status_code=400, detail="Upload a valid file")
+
     # Guardar el archivo en el servidor
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
-    file.save(file_path)
-
-    if file and allowed_file(file.filename):
-
-        try:
-            df = pd.read_csv(file_path)
-            print(df.head(5))
-            processed_data = df.head().to_html()  # Convertir a HTML para mostrar en la respuesta
-        except Exception as e:
-            return f'Error processing file: {e}', 400
+    file_path = os.path.join(UPLOAD_FOLDER, file.filename)
     
-        return f'File uploaded and processed successfully:<br>{processed_data}', 200
+    with open(file_path, "wb") as buffer:
+        buffer.write(await file.read())
 
-    else:
-        return 'upload valid file'
+    try:
+        df = pd.read_csv(file_path)
+        processed_data = df.head().to_html()  # Convertir a HTML para mostrar en la respuesta
+        charts = {}
+        j=0
+        if not df.empty:
+            for i in df.columns:
+                fig = grafica_columna(df[i])
+                charts[f'fig{j}'] = pio.to_html(fig)
+                j+=1
+
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error processing file: {e}")
+    return JSONResponse(content=charts)
+    # return HTMLResponse(content=f'File uploaded and processed successfully:<br>{processed_data}', status_code=200)
+
+
+
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
