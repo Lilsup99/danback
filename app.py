@@ -7,9 +7,18 @@ import pandas as pd
 from typing import List
 from graphs import grafica_columna
 import plotly.io as pio
-
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Puedes especificar dominios en lugar de "*", si es necesario
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # Configura la carpeta donde se guardarán los archivos
 UPLOAD_FOLDER = 'uploads'
