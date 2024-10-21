@@ -1,13 +1,12 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 import os
 import pandas as pd
-from typing import List
 from graphs import grafica_columna
 import plotly.io as pio
-from fastapi.middleware.cors import CORSMiddleware
+import json
 
 app = FastAPI()
 
@@ -66,23 +65,20 @@ async def upload_file(file: UploadFile = File(...)):
 
     try:
         df = pd.read_csv(file_path)
-        processed_data = df.head().to_html()  # Convertir a HTML para mostrar en la respuesta
         charts = {}
-        j=0
+        j = 0
         if not df.empty:
             for i in df.columns:
                 fig = grafica_columna(df[i])
-                charts[f'fig{j}'] = pio.to_html(fig)
-                j+=1
-
+                # Serializar el gráfico a JSON
+                charts[f'fig{j}'] = json.loads(pio.to_json(fig))
+                j += 1
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error processing file: {e}")
-    return JSONResponse(content=charts)
-    # return HTMLResponse(content=f'File uploaded and processed successfully:<br>{processed_data}', status_code=200)
-
-
-
+    
+    # Retornar los gráficos en formato JSON
+    return charts
 
 if __name__ == '__main__':
     import uvicorn
